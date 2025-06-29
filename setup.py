@@ -90,11 +90,10 @@ class DePINed:
         except Exception as e:
             return []
         
-    def load_2captcha_key(self):
+    def load_capsolver_key(self):
         try:
-            with open("2captcha_key.txt", 'r') as file:
+            with open("capsolver_key.txt", 'r') as file:
                 captcha_key = file.read().strip()
-
             return captcha_key
         except Exception as e:
             return None
@@ -208,47 +207,95 @@ class DePINed:
         for attempt in range(retries):
             try:
                 if self.CAPTCHA_KEY is None:
+                    self.log(
+                        f"{Fore.MAGENTA + Style.BRIGHT}    >{Style.RESET_ALL}"
+                        f"{Fore.RED + Style.BRIGHT} Capsolver Key Not Found{Style.RESET_ALL}"
+                    )
                     return None
                 
-                url = f"http://2captcha.com/in.php?key={self.CAPTCHA_KEY}&method=userrecaptcha&googlekey={self.SITE_KEY}&pageurl={self.PAGE_URL}&json=1"
-                response = await asyncio.to_thread(requests.get, url=url, proxy=proxy, timeout=60, impersonate="chrome110", verify=False)
-                response.raise_for_status()
-                result = response.json()
-
-                if result.get("status") != 1:
-                    await asyncio.sleep(5)
-                    continue
-
-                request_id = result.get("request")
+                url = "https://api.capsolver.com/createTask"
+                payload = {
+                    "clientKey": self.CAPTCHA_KEY,
+                    "task": {
+                        "type": "AntiTurnstileTaskProxyLess",  # Loại task cho Turnstile
+                        "websiteURL": self.PAGE_URL,
+                        "websiteKey": self.SITE_KEY
+                        # Loại bỏ metadata nếu không cần thiết
+                    }
+                }
+                if proxy:
+                    payload["task"]["proxy"] = proxy
 
                 self.log(
                     f"{Fore.MAGENTA + Style.BRIGHT}    >{Style.RESET_ALL}"
-                    f"{Fore.BLUE + Style.BRIGHT} Req Id: {Style.RESET_ALL}"
-                    f"{Fore.WHITE + Style.BRIGHT}{request_id}{Style.RESET_ALL}"
+                    f"{Fore.BLUE + Style.BRIGHT} Sending Task to Capsolver{Style.RESET_ALL}"
+                )
+                response = await asyncio.to_thread(requests.post, url=url, json=payload, timeout=60, verify=False)
+                response.raise_for_status()
+                result = response.json()
+
+                if result.get("errorId") != 0:
+                    self.log(
+                        f"{Fore.MAGENTA + Style.BRIGHT}    >{Style.RESET_ALL}"
+                        f"{Fore.RED + Style.BRIGHT} Capsolver Error: {result.get('errorDescription')} (ErrorId: {result.get('errorId')}){Style.RESET_ALL}"
+                    )
+                    await asyncio.sleep(5)
+                    continue
+
+                task_id = result.get("taskId")
+                if not task_id:
+                    self.log(
+                        f"{Fore.MAGENTA + Style.BRIGHT}    >{Style.RESET_ALL}"
+                        f"{Fore.RED + Style.BRIGHT} No Task ID Returned{Style.RESET_ALL}"
+                    )
+                    await asyncio.sleep(5)
+                    continue
+
+                self.log(
+                    f"{Fore.MAGENTA + Style.BRIGHT}    >{Style.RESET_ALL}"
+                    f"{Fore.BLUE + Style.BRIGHT} Task Id: {Style.RESET_ALL}"
+                    f"{Fore.WHITE + Style.BRIGHT}{task_id}{Style.RESET_ALL}"
                 )
 
-                for _ in range(30):
-                    res_url = f"http://2captcha.com/res.php?key={self.CAPTCHA_KEY}&action=get&id={request_id}&json=1"
-                    res_response = await asyncio.to_thread(requests.get, url=res_url, proxy=proxy, timeout=60, impersonate="chrome110", verify=False)
+                for _ in range(60):
+                    result_url = "https://api.capsolver.com/getTaskResult"
+                    result_payload = {
+                        "clientKey": self.CAPTCHA_KEY,
+                        "taskId": task_id
+                    }
+                    res_response = await asyncio.to_thread(requests.post, url=result_url, json=result_payload, timeout=60, verify=False)
                     res_response.raise_for_status()
                     res_result = res_response.json()
 
-                    if res_result.get("status") == 1:
-                        captcha_token = res_result.get("request")
-                        self.captcha_tokens[email] = captcha_token
-                        return True
-                    elif res_result.get("request") == "CAPCHA_NOT_READY":
+                    if res_result.get("errorId") == 0 and res_result.get("status") == "ready":
+                        captcha_token = res_result.get("solution", {}).get("token")
+                        if captcha_token:
+                            self.captcha_tokens[email] = captcha_token
+                            self.log(
+                                f"{Fore.MAGENTA + Style.BRIGHT}    >{Style.RESET_ALL}"
+                                f"{Fore.GREEN + Style.BRIGHT} Captcha Token: {captcha_token[:20]}...{Style.RESET_ALL}"
+                            )
+                            return True
+                    elif res_result.get("status") == "processing":
                         self.log(
                             f"{Fore.MAGENTA + Style.BRIGHT}    >{Style.RESET_ALL}"
                             f"{Fore.BLUE + Style.BRIGHT} Status: {Style.RESET_ALL}"
                             f"{Fore.YELLOW + Style.BRIGHT}Captcha Not Ready{Style.RESET_ALL}"
                         )
-                        await asyncio.sleep(5)
+                        await asyncio.sleep(3)
                         continue
                     else:
+                        self.log(
+                            f"{Fore.MAGENTA + Style.BRIGHT}    >{Style.RESET_ALL}"
+                            f"{Fore.RED + Style.BRIGHT} Capsolver Task Failed: {res_result.get('errorDescription', 'Unknown error')}{Style.RESET_ALL}"
+                        )
                         break
 
             except Exception as e:
+                self.log(
+                    f"{Fore.MAGENTA + Style.BRIGHT}    >{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} Capsolver Error: {str(e)}{Style.RESET_ALL}"
+                )
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
@@ -338,7 +385,7 @@ class DePINed:
                 self.log(f"{Fore.RED + Style.BRIGHT}No Accounts Loaded.{Style.RESET_ALL}")
                 return
             
-            capctha_key = self.load_2captcha_key()
+            capctha_key = self.load_capsolver_key()  # Updated to load Capsolver key
             if capctha_key:
                 self.CAPTCHA_KEY = capctha_key
             

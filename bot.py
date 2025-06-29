@@ -3,7 +3,6 @@ from fake_useragent import FakeUserAgent
 from datetime import datetime
 from colorama import *
 import asyncio, json, os, pytz
-import capsolver  # Added for CapSolver integration
 
 wib = pytz.timezone('Asia/Jakarta')
 
@@ -13,7 +12,7 @@ class DePINed:
             "Accept": "*/*",
             "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
             "Origin": "chrome-extension://pjlappmodaidbdjhmhifbnnmmkkicjoc",
-            "Sec-Fetch-Dest": "est",
+            "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "none",
             "User-Agent": FakeUserAgent().random,
@@ -24,10 +23,6 @@ class DePINed:
         self.proxy_index = 0
         self.account_proxies = {}
         self.access_tokens = {}
-        self.capsolver_api_key = "CAP-2A8D4A1FED4798DF321DA0CFE00BCF34"  # Replace with your CapSolver API key
-
-        # Initialize CapSolver
-        capsolver.api_key = self.capsolver_api_key
 
     def clear_terminal(self):
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -184,30 +179,6 @@ class DePINed:
             self.print_message(email, proxy, Fore.RED, f"Connection Not 200 OK: {Fore.YELLOW+Style.BRIGHT}{str(e)}")
             return None
 
-    async def solve_captcha(self, email: str, website_url: str, website_key: str, proxy=None):
-        """Solve CAPTCHA using CapSolver API."""
-        try:
-            # Example: Solve reCAPTCHA v2 (adjust type and parameters based on actual CAPTCHA)
-            task = {
-                "type": "ReCaptchaV2TaskProxyLess",  # Use ProxyLess or ReCaptchaV2Task if proxy is needed
-                "websiteURL": website_url,
-                "websiteKey": website_key
-            }
-            if proxy:
-                task["proxy"] = proxy  # Add proxy if available
-
-            # Submit CAPTCHA task to CapSolver
-            solution = await asyncio.to_thread(capsolver.solve, task)
-            if solution and "gRecaptchaResponse" in solution:
-                self.print_message(email, proxy, Fore.GREEN, "CAPTCHA Solved Successfully")
-                return solution["gRecaptchaResponse"]
-            else:
-                self.print_message(email, proxy, Fore.RED, "CAPTCHA Solving Failed: No solution returned")
-                return None
-        except Exception as e:
-            self.print_message(email, proxy, Fore.RED, f"CAPTCHA Solving Error: {str(e)}")
-            return None
-
     async def user_epoch_earning(self, email: str, proxy=None, retries=5):
         url = f"{self.BASE_API}/stats/epoch-earnings"
         headers = {
@@ -229,7 +200,7 @@ class DePINed:
             
     async def user_send_ping(self, email: str, proxy=None, retries=5):
         url = f"{self.BASE_API}/user/widget-connect"
-        data = json.dumps({"connected": True})
+        data = json.dumps({"connected":True})
         headers = {
             "Authorization": f"Bearer {self.access_tokens[email]}",
             "Content-Length": str(len(data)),
@@ -239,31 +210,7 @@ class DePINed:
             try:
                 response = await asyncio.to_thread(requests.post, url=url, headers=headers, data=data, proxy=proxy, timeout=60, impersonate="chrome110", verify=False)
                 response.raise_for_status()
-                response_json = response.json()
-                if response_json.get("message") == "Widget connection status updated":
-                    self.print_message(email, proxy, Fore.GREEN, "PING Success")
-                    return response_json
-                else:
-                    # Check if CAPTCHA is required (hypothetical, adjust based on actual API response)
-                    if "captcha_required" in response_json.get("error", "").lower():
-                        self.print_message(email, proxy, Fore.YELLOW, "CAPTCHA Required, Attempting to Solve")
-                        # Replace with actual website URL and site key from the API response or configuration
-                        captcha_solution = await self.solve_captcha(
-                            email=email,
-                            website_url="https://depined.org",  # Adjust to actual website URL
-                            website_key="YOUR_RECAPTCHA_SITE_KEY",  # Replace with actual site key
-                            proxy=proxy
-                        )
-                        if captcha_solution:
-                            headers["g-recaptcha-response"] = captcha_solution
-                            # Retry the request with CAPTCHA solution
-                            response = await asyncio.to_thread(requests.post, url=url, headers=headers, data=data, proxy=proxy, timeout=60, impersonate="chrome110", verify=False)
-                            response.raise_for_status()
-                            response_json = response.json()
-                            if response_json.get("message") == "Widget connection status updated":
-                                self.print_message(email, proxy, Fore.GREEN, "PING Success After CAPTCHA")
-                                return response_json
-                    self.print_message(email, proxy, Fore.RED, f"PING Failed: {response_json.get('error', 'Unknown error')}")
+                return response.json()
             except Exception as e:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
@@ -396,5 +343,5 @@ if __name__ == "__main__":
         print(
             f"{Fore.CYAN + Style.BRIGHT}[ {datetime.now().astimezone(wib).strftime('%x %X %Z')} ]{Style.RESET_ALL}"
             f"{Fore.WHITE + Style.BRIGHT} | {Style.RESET_ALL}"
-            f"{Fore.RED + Style.BRIGHT}[ EXIT ] DePINed - BOT{Style.RESET_ALL}"                              
+            f"{Fore.RED + Style.BRIGHT}[ EXIT ] DePINed - BOT{Style.RESET_ALL}                                       "                              
         )
